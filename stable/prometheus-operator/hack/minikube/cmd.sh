@@ -8,9 +8,8 @@ VALUES_FILES=./hack/minikube/values.yaml
 if [ "$1" = "reset-minikube" ]; then
   minikube delete
   minikube start  \
-    #--vm-driver hyperv --hyperv-virtual-switch "Default Switch" \
-    --kubernetes-version=v1.13.3 \
-    --memory=4096 --bootstrapper=kubeadm \
+    --kubernetes-version=v1.16.2 \
+    --memory=4096 --cpus=4 --bootstrapper=kubeadm\
     --extra-config=kubelet.authentication-token-webhook=true \
     --extra-config=kubelet.authorization-mode=Webhook \
     --extra-config=scheduler.address=0.0.0.0 \
@@ -19,14 +18,15 @@ if [ "$1" = "reset-minikube" ]; then
 fi
 
 if [ "$1" = "init-helm" ]; then
-  helm init
+  #helm 3+ does not need an init
+  helm repo add stable https://kubernetes-charts.storage.googleapis.com/
   helm repo update
   exit 0
 fi
 
 if [ "$1" = "init-etcd-secret" ]; then
-  kubectl create namespace monitoring
-  kubectl delete secret etcd-certs -nmonitoring
+  kubectl create namespace monitoring &>/dev/null
+  kubectl delete secret etcd-certs -nmonitoring &>/dev/null
   kubectl create secret generic etcd-certs -nmonitoring \
   --from-literal=ca.crt="$(kubectl exec kube-apiserver-minikube -nkube-system -- cat /var/lib/minikube/certs/etcd/ca.crt)" \
   --from-literal=client.crt="$(kubectl exec kube-apiserver-minikube -nkube-system -- cat /var/lib/minikube/certs/apiserver-etcd-client.crt)" \
@@ -35,13 +35,21 @@ if [ "$1" = "init-etcd-secret" ]; then
   exit 0
 fi
 
-
 if [ "$1" = "prometheus-operator" ]; then
-  helm upgrade $HELM_RELEASE_NAME $CHART \
-    --namespace $NAMESPACE     \
-    --values    $VALUES_FILES  \
-    --set       grafana.podAnnotations.redeploy-hack="$(cat /proc/sys/kernel/random/uuid)" \
-    --install --debug
+   helm install $HELM_RELEASE_NAME stable/prometheus-operator --namespace $NAMESPACE
+#  helm upgrade $HELM_RELEASE_NAME $CHART \
+#    --namespace $NAMESPACE     \
+#    --values    $VALUES_FILES  \
+#    --set       grafana.podAnnotations.redeploy-hack="$(/usr/bin/uuidgen)" \
+#    --install --debug
+  exit 0
+fi
+
+if [ "$1" = "test" ]; then
+  kubectl apply -f https://raw.githubusercontent.com/coreos/prometheus-operator/master/example/user-guides/getting-started/example-app-deployment.yaml --namespace $NAMESPACE
+  kubectl apply -f https://raw.githubusercontent.com/coreos/prometheus-operator/master/example/user-guides/getting-started/example-app-service.yaml --namespace $NAMESPACE
+  kubectl apply -f https://raw.githubusercontent.com/coreos/prometheus-operator/master/example/user-guides/getting-started/example-app-service-monitor.yaml --namespace $NAMESPACE
+  #TODO the check part should be written
   exit 0
 fi
 
@@ -77,6 +85,8 @@ Commands:
                         localhost:9090 - prometheus
                         localhost:9093 - alertmanager
                         localhost:3000 - grafana
+  test                - creates an example service and checks back whether it appeared in
+                        prometheus config
 EOF
 
 exit 0
